@@ -6,7 +6,6 @@ import Node from '../Node/Node';
 import NodeOptions from './NodeOptions';
 import GraphOptions from './GraphOptions';
 import GraphDescription from '../Graph/GraphDescription';
-import SubGraphDeployer from '../Graph/SubGraphDeployer';
 import Graph from '../Graph/Graph';
 import NodeDescription from '../Node/NodeDescription';
 import DevChainOptions from './DevChainOptions';
@@ -65,59 +64,59 @@ mosaic
   .option('-u,--unlock <accounts>', 'a comma separated list of accounts that get unlocked in the node; you must use this together with --password')
   .option('-s,--password <file>', 'the path to the password file on your machine; you must use this together with --unlock')
   .option('-g,--withoutGraphNode', 'boolean flag which decides if graph node should be started')
-  .action((chain: string, options) => {
-    let chainInput = chain;
-    let optionInput = Object.assign({}, options);
-    if (!validateCLIOptions(chain, optionInput)) {
-      process.exit(1);
-    }
-    if (DevChainOptions.isDevChain(chain, options)) {
-      const devParams = DevChainOptions.getDevChainParams(chain, options);
-      chainInput = devParams.chain;
-      optionInput = devParams.options;
-    }
-    const {
-      mosaicDir,
-      port,
-      rpcPort,
-      websocketPort,
-      keepAfterStop,
-      unlock,
-      password,
-      originChain,
-    } = NodeOptions.parseOptions(optionInput, chainInput);
-    const nodeDescription: NodeDescription = {
-      chain: chainInput,
-      mosaicDir,
-      port,
-      rpcPort,
-      websocketPort,
-      keepAfterStop,
-      unlock,
-      password,
-      originChain,
-      client: optionInput.client,
-    };
-    const node: Node = NodeFactory.create(nodeDescription);
-    node.start();
+  .action(async (chain: string, options) => {
+    try {
+      let chainInput = chain;
+      let optionInput = Object.assign({}, options);
+      if (!validateCLIOptions(chain, optionInput)) {
+        process.exit(1);
+      }
+      if (DevChainOptions.isDevChain(chain, options)) {
+        const devParams = DevChainOptions.getDevChainParams(chain, options);
+        chainInput = devParams.chain;
+        optionInput = devParams.options;
+        // Dev chain should always start with geth.
+        optionInput.client = GETH_CLIENT;
+      }
+      const {
+        mosaicDir,
+        port,
+        rpcPort,
+        websocketPort,
+        keepAfterStop,
+        unlock,
+        password,
+        originChain,
+      } = NodeOptions.parseOptions(optionInput, chainInput);
+      const nodeDescription: NodeDescription = {
+        chain: chainInput,
+        mosaicDir,
+        port,
+        rpcPort,
+        websocketPort,
+        keepAfterStop,
+        unlock,
+        password,
+        originChain,
+        client: optionInput.client,
+      };
+      const node: Node = NodeFactory.create(nodeDescription);
+      node.start();
 
-    if (!optionInput.withoutGraphNode) {
-      const graphDescription: GraphDescription = GraphOptions.parseOptions(optionInput, chainInput);
-      // reuse params from node start command
-      graphDescription.mosaicDir = mosaicDir;
-      graphDescription.ethereumRpcPort = rpcPort;
-      graphDescription.ethereumClient = nodeDescription.client;
+      if (!optionInput.withoutGraphNode) {
+        const graphDescription: GraphDescription = GraphOptions.parseOptions(
+          optionInput,
+          chainInput,
+        );
+        // reuse params from node start command
+        graphDescription.mosaicDir = mosaicDir;
+        graphDescription.ethereumRpcPort = rpcPort;
+        graphDescription.ethereumClient = nodeDescription.client;
 
-      new Graph(graphDescription).start().then(() => {
-        let subGraphDeployer;
-        // options.origin passed only in case of starting an auxiliary chain
-        if (optionInput.origin) {
-          subGraphDeployer = new SubGraphDeployer(graphDescription, optionInput.origin, chainInput);
-        } else {
-          subGraphDeployer = new SubGraphDeployer(graphDescription, chainInput, null);
-        }
-        return subGraphDeployer.deploy();
-      });
+        await (new Graph(graphDescription).start());
+      }
+    } catch (e) {
+      Logger.error(`Error starting node: ${e} `);
     }
   })
   .parse(process.argv);
